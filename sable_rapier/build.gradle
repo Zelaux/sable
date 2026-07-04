@@ -208,30 +208,28 @@ tasks.register('packRustNatives', Zip) {
 }
 tasks.register('inspectRustLayout', Exec) {
     group = 'rust'
-    description = 'Prints the memory layout and offsets of Rust structures'
+    description = 'Prints the memory layout and offsets of Rust structures using project target pipeline'
     workingDir rustProjectDir
 
-    // Берем параметры для Linux x86_64, так как на нем обычно работает CI
+    // 1. Берем целевой таргет (например, Linux x86_64)
     def target = supportedTargets.find { it.os == "linux" && it.arch == "x86_64" } ?: supportedTargets[0]
     
-    // Формируем команду Docker
-    // Мы добавляем '-e RUSTFLAGS=-Z print-type-sizes' чтобы передать флаг компилятору
-    def commands = [
-        docker, 'run', '--rm',
-        '-v', "$rustRootDir:/io",
-        '-v', "$cargoCacheDir/git:/usr/local/cargo/git",
-        '-v', "$cargoCacheDir/registry:/usr/local/cargo/registry",
-        '-e', 'RUSTFLAGS=-Z print-type-sizes', // ВКЛЮЧАЕМ ПЕЧАТЬ РАЗМЕРОВ
-        '-w', '/io/rapier',
-        zigbuildImage, 'cargo', 'check', '--release', '--target', target.triple + target.suffix
-    ]
+    // 2. Получаем готовую команду из вашего скрипта!
+    def commands = commandLineForTarget(target)
+
+    // 3. Вставляем '-e RUSTFLAGS=-Z print-type-sizes' сразу после 'run' в docker команду
+    def runIndex = commands.indexOf('run')
+    if (runIndex != -1) {
+        commands.addAll(runIndex + 1, ['-e', 'RUSTFLAGS=-Z print-type-sizes'])
+    }
 
     commandLine = commands
 
-    // Флаг print-type-sizes выводит очень много текста. 
-    // Чтобы в логах GitHub Actions было легче искать, мы можем отфильтровать вывод.
+    // 4. Указываем зависимость от нужного контейнера (собираем образ перед запуском)
+    dependsOn target.triple.contains('msvc') ? buildXWinImage : buildZigbuildImage
+
     doFirst {
-        println "Checking Rust type layouts for ${target.triple}..."
+        println "Checking Rust type layouts for ${target.triple} using native target pipeline..."
     }
 }
 repositories {
