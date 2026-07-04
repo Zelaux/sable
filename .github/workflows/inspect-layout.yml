@@ -1,0 +1,45 @@
+name: Rust Layout Inspection
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Позволяет запускать вручную из вкладки Actions
+
+jobs:
+  inspect-rust:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 # Рекомендуется для Minecraft 1.21 / NeoForge
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # Кэширование Cargo реестра значительно ускорит последующие запуски
+      - name: Cache Cargo data
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/cargo/git
+            build/cargo/registry
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Сначала собираем Docker-образы (это нужно один раз или при смене версии Rust)
+      - name: Build Rust Docker Images
+        run: ./gradlew buildImages
+
+      # Запускаем инспекцию
+      - name: Run Layout Inspection
+        run: ./gradlew inspectRustLayout
