@@ -3,9 +3,7 @@ name: Rust Layout Inspection
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch: # Позволяет запускать вручную из вкладки Actions
+  workflow_dispatch:
 
 jobs:
   inspect-rust:
@@ -15,31 +13,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21 # Рекомендуется для Minecraft 1.21 / NeoForge
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'gradle'
 
+      # Генерируем ключ кэша на основе Docker-файлов. 
+      # Если Dockerfile изменится, кэш сбросится и образ пересоберется.
+      - name: Docker Cache Query
+        id: cache-docker
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-images
+          key: ${{ runner.os }}-docker-${{ hashFiles('src/main/rust/container/**/Dockerfile') }}
+
+      # Если кэш найден, загружаем образы в Docker daemon
+      - name: Load Docker Images
+        if: steps.cache-docker.outputs.cache-hit == 'true'
+        run: |
+          docker load -i /tmp/docker-images/zigbuild.tar || true
+          docker load -i /tmp/docker-images/xwin.tar || true
+
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # Кэширование Cargo реестра значительно ускорит последующие запуски
-      - name: Cache Cargo data
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/cargo/git
-            build/cargo/registry
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      # Сначала собираем Docker-образы (это нужно один раз или при смене версии Rust)
+      # Если кэша НЕТ, запускаем сборку образов через Gradle
       - name: Build Rust Docker Images
+        if: steps.cache-docker.outputs.cache-hit != 'true'
         run: ./gradlew buildImages
 
-      # Запускаем инспекцию
+      # Сохраняем свежесобранные образы в файл для кэширования (только если кэш не найден)
+      - name: Save Docker Images for Cache
+        if: steps.cache-docker.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/docker-images
+          docker save sable-build-zigbuild -o /tmp/docker-images/zigbuild.tar
+          docker save sable-build-xwin -o /tmp/docker-images/xwin.tar
+
       - name: Run Layout Inspection
         run: ./gradlew inspectRustLayout
