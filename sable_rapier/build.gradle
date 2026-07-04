@@ -206,7 +206,34 @@ tasks.register('packRustNatives', Zip) {
         }
     }
 }
+tasks.register('inspectRustLayout', Exec) {
+    group = 'rust'
+    description = 'Prints the memory layout and offsets of Rust structures'
+    workingDir rustProjectDir
 
+    // Берем параметры для Linux x86_64, так как на нем обычно работает CI
+    def target = supportedTargets.find { it.os == "linux" && it.arch == "x86_64" } ?: supportedTargets[0]
+    
+    // Формируем команду Docker
+    // Мы добавляем '-e RUSTFLAGS=-Z print-type-sizes' чтобы передать флаг компилятору
+    def commands = [
+        docker, 'run', '--rm',
+        '-v', "$rustRootDir:/io",
+        '-v', "$cargoCacheDir/git:/usr/local/cargo/git",
+        '-v', "$cargoCacheDir/registry:/usr/local/cargo/registry",
+        '-e', 'RUSTFLAGS=-Z print-type-sizes', // ВКЛЮЧАЕМ ПЕЧАТЬ РАЗМЕРОВ
+        '-w', '/io/rapier',
+        zigbuildImage, 'cargo', 'check', '--release', '--target', target.triple + target.suffix
+    ]
+
+    commandLine = commands
+
+    // Флаг print-type-sizes выводит очень много текста. 
+    // Чтобы в логах GitHub Actions было легче искать, мы можем отфильтровать вывод.
+    doFirst {
+        println "Checking Rust type layouts for ${target.triple}..."
+    }
+}
 repositories {
     mavenCentral()
 }
